@@ -23,5 +23,9 @@ func Execute() {
 		log.Fatal("Specify the address to connect")
 	}
 
+	if timeout == 0 {
+		log.Fatal("Specify the timeout to connect")
+	}
+
 	internal.Run(address, timeout)
 }
