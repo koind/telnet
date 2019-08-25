@@ -8,18 +8,23 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"time"
 )
 
+// App options
+type Options struct {
+	Address string
+	Timeout int64
+}
+
 // Starts execution
-func Run(address string, timeout int64) {
+func Run(options Options) {
 	dialer := &net.Dialer{}
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(options.Timeout)*time.Millisecond)
 	defer cancel()
 
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	conn, err := dialer.DialContext(ctx, "tcp", options.Address)
 	if err != nil {
 		log.Fatalf("Cannot connect: %v", err)
 	}
@@ -30,24 +35,12 @@ func Run(address string, timeout int64) {
 	go func() {
 		<-stopCh
 
-		log.Fatal("Get SIGINT signal")
+		log.Println("Get SIGINT signal")
+		cancel()
 	}()
 
-	wg := sync.WaitGroup{}
-
-	wg.Add(1)
-	go func() {
-		readRoutine(ctx, conn)
-		wg.Done()
-	}()
-
-	wg.Add(1)
-	go func() {
-		writeRoutine(ctx, conn)
-		wg.Done()
-	}()
-
-	wg.Wait()
+	readRoutine(ctx, conn)
+	writeRoutine(ctx, conn)
 
 	err = conn.Close()
 	if err != nil {
@@ -61,7 +54,7 @@ OUTER:
 	for {
 		select {
 		case <-ctx.Done():
-			break OUTER
+			return
 		default:
 			timeoutForRead := time.Millisecond * 150
 			reader := bufio.NewReader(conn)
@@ -81,8 +74,6 @@ OUTER:
 			}
 		}
 	}
-
-	log.Println("Finished readRoutine")
 }
 
 // Writes to the connection
