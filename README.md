@@ -14,7 +14,7 @@ go get github.com/koind/telnet
 Usage example.
 
 ```
-./telnet --address "site.com:80" --timeout 10000
+./telnet --address "site.com:80" --timeout 10000 -r 400
 ```
 
 ## View command line options
@@ -28,6 +28,7 @@ Help information
 
 ```
 Usage of ./telnet:
-  -a, --address string   resource address for the connection
-  -t, --timeout int      timeout to connect
+  -a, --address string    resource address for the connection
+  -r, --read_timeout int  read timeout to connect
+  -t, --timeout int       timeout to connect
 ```
