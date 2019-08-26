@@ -8,13 +8,15 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 )
 
 // App options
 type Options struct {
-	Address string
-	Timeout int64
+	Address     string
+	Timeout     int64
+	ReadTimeout int64
 }
 
 // Starts execution
@@ -39,8 +41,21 @@ func Run(options Options) {
 		cancel()
 	}()
 
-	readRoutine(ctx, conn)
-	writeRoutine(ctx, conn)
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		readRoutine(ctx, conn, options.ReadTimeout)
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		writeRoutine(ctx, conn)
+		wg.Done()
+	}()
+
+	wg.Wait()
 
 	err = conn.Close()
 	if err != nil {
@@ -49,14 +64,14 @@ func Run(options Options) {
 }
 
 // Reads from a connection
-func readRoutine(ctx context.Context, conn net.Conn) {
+func readRoutine(ctx context.Context, conn net.Conn, readTimeout int64) {
 OUTER:
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			timeoutForRead := time.Millisecond * 150
+			timeoutForRead := time.Duration(readTimeout) * time.Millisecond
 			reader := bufio.NewReader(conn)
 
 			for {
@@ -102,13 +117,8 @@ OUTER:
 
 // Reads data from stdin
 func getInput(inputCh chan<- string) {
-	for {
-		in := bufio.NewReader(os.Stdin)
-		result, err := in.ReadString('\n')
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		inputCh <- result
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		inputCh <- scanner.Text()
 	}
 }
