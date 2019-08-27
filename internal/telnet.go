@@ -8,15 +8,13 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"time"
 )
 
 // App options
 type Options struct {
-	Address     string
-	Timeout     int64
-	ReadTimeout int64
+	Address string
+	Timeout int64
 }
 
 // Starts execution
@@ -31,94 +29,72 @@ func Run(options Options) {
 		log.Fatalf("Cannot connect: %v", err)
 	}
 
+	inputCh := make(chan string)
+	responseCh := make(chan string)
 	stopCh := make(chan os.Signal, 1)
 	signal.Notify(stopCh, os.Interrupt)
 
-	go func() {
+	go func(stopCh <-chan os.Signal) {
 		<-stopCh
 
 		log.Println("Get SIGINT signal")
 		cancel()
-	}()
+	}(stopCh)
 
-	wg := sync.WaitGroup{}
+	go func(ctx context.Context, inputCh chan<- string) {
+		scanner := bufio.NewScanner(os.Stdin)
 
-	wg.Add(1)
-	go func() {
-		readRoutine(ctx, conn, options.ReadTimeout)
-		wg.Done()
-	}()
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("Write close")
+				return
+			default:
+				if !scanner.Scan() {
+					return
+				}
+				inputCh <- scanner.Text()
+			}
+		}
+	}(ctx, inputCh)
 
-	wg.Add(1)
-	go func() {
-		writeRoutine(ctx, conn)
-		wg.Done()
-	}()
+	go func(ctx context.Context, conn net.Conn, responseCh chan<- string) {
+		scanner := bufio.NewScanner(conn)
 
-	wg.Wait()
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("Read close")
+				return
+			default:
+				if !scanner.Scan() {
+					log.Printf("CANNOT SCAN")
+					return
+				}
+				responseCh <- scanner.Text()
+			}
+		}
+	}(ctx, conn, responseCh)
+
+OUTER:
+	for {
+		select {
+		case message := <-inputCh:
+			log.Printf("To server %v\n", message)
+
+			_, err := conn.Write([]byte(fmt.Sprintf("%s\n", message)))
+			if err != nil {
+				log.Printf("error writing to connection: %v", err)
+			}
+		case message := <-responseCh:
+			log.Printf("From server: %s", message)
+		case <-ctx.Done():
+			break OUTER
+		}
+	}
 
 	err = conn.Close()
 	if err != nil {
 		log.Fatal(err)
-	}
-}
-
-// Reads from a connection
-func readRoutine(ctx context.Context, conn net.Conn, readTimeout int64) {
-OUTER:
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			timeoutForRead := time.Duration(readTimeout) * time.Millisecond
-			reader := bufio.NewReader(conn)
-
-			for {
-				err := conn.SetReadDeadline(time.Now().Add(timeoutForRead))
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				bytes, err := reader.ReadBytes('\n')
-				if err != nil {
-					continue OUTER
-				}
-
-				log.Printf("From server: %s", string(bytes))
-			}
-		}
-	}
-}
-
-// Writes to the connection
-func writeRoutine(ctx context.Context, conn net.Conn) {
-	inputCh := make(chan string, 1)
-	go getInput(inputCh)
-
-OUTER:
-	for {
-		select {
-		case <-ctx.Done():
-			break OUTER
-		case data := <-inputCh:
-			log.Printf("To server %v\n", data)
-
-			_, err := conn.Write([]byte(fmt.Sprintf("%s\n", data)))
-			if err != nil {
-				log.Printf("error writing to connection: %v", err)
-			}
-		}
-
-	}
-
-	log.Printf("Finished writeRoutine")
-}
-
-// Reads data from stdin
-func getInput(inputCh chan<- string) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		inputCh <- scanner.Text()
 	}
 }
