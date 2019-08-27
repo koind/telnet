@@ -13,8 +13,9 @@ import (
 
 // App options
 type Options struct {
-	Address string
-	Timeout int64
+	Address     string
+	Timeout     int64
+	ReadTimeout int64
 }
 
 // Starts execution
@@ -29,8 +30,8 @@ func Run(options Options) {
 		log.Fatalf("Cannot connect: %v", err)
 	}
 
-	inputCh := make(chan string)
-	responseCh := make(chan string)
+	inputCh := make(chan string, 1)
+	responseCh := make(chan string, 1)
 	stopCh := make(chan os.Signal, 1)
 	signal.Notify(stopCh, os.Interrupt)
 
@@ -41,40 +42,26 @@ func Run(options Options) {
 		cancel()
 	}(stopCh)
 
-	go func(ctx context.Context, inputCh chan<- string) {
+	go func(inputCh chan<- string) {
 		scanner := bufio.NewScanner(os.Stdin)
-
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Println("Write close")
-				return
-			default:
-				if !scanner.Scan() {
-					return
-				}
-				inputCh <- scanner.Text()
-			}
+		for scanner.Scan() {
+			inputCh <- scanner.Text()
 		}
-	}(ctx, inputCh)
+	}(inputCh)
 
-	go func(ctx context.Context, conn net.Conn, responseCh chan<- string) {
+	go func(ctx context.Context, conn net.Conn, readTimeout int64, responseCh chan<- string) {
+		timeoutForRead := time.Duration(readTimeout) * time.Millisecond
+		err := conn.SetReadDeadline(time.Now().Add(timeoutForRead))
+		if err != nil {
+			log.Println(err)
+		}
+
 		scanner := bufio.NewScanner(conn)
 
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Println("Read close")
-				return
-			default:
-				if !scanner.Scan() {
-					log.Printf("CANNOT SCAN")
-					return
-				}
-				responseCh <- scanner.Text()
-			}
+		for scanner.Scan() {
+			responseCh <- scanner.Text()
 		}
-	}(ctx, conn, responseCh)
+	}(ctx, conn, options.ReadTimeout, responseCh)
 
 OUTER:
 	for {

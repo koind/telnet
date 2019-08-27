@@ -28,6 +28,7 @@ Help information
 
 ```
 Usage of ./telnet:
-  -a, --address string    resource address for the connection
-  -t, --timeout int       timeout to connect
+  -a, --address string     resource address for the connection
+  -r, --read_timeout int   read timeout to connect
+  -t, --timeout int        timeout to connect
 ```
