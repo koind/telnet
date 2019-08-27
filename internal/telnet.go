@@ -67,7 +67,7 @@ OUTER:
 	for {
 		select {
 		case message := <-inputCh:
-			log.Printf("To server %v\n", message)
+			log.Printf("To server '%v'\n", message)
 
 			_, err := conn.Write([]byte(fmt.Sprintf("%s\n", message)))
 			if err != nil {
